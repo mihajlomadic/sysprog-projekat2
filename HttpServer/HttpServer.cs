@@ -1,4 +1,5 @@
 ﻿using HttpServer.Caching;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 
@@ -17,7 +18,7 @@ internal class HttpServer
     private string rootDirectoryPath;
     private ReaderWriterLRUCache<string, byte[]> cache;
     private string errLogFilePath;
-    private object _logFileLock = new object();
+    private object _logFileLock = new();
 
     public HttpServer(string baseUrl, int port, string rootDirectoryPath, string errLogFilePath, int cacheCapacity)
     {
@@ -39,13 +40,13 @@ internal class HttpServer
             while (listener.IsListening)
             {
                 var context = await listener.GetContextAsync();
-                Console.WriteLine($"Request received from {context.Request.RemoteEndPoint}.");
-                Task.Run(() => ProcessRequest(context));
+                // nije awaitovano, zato sto zelimo sto brze da primamo request-e
+                ProcessRequest(context);
             }
         }
     }
 
-    private void ProcessRequest(HttpListenerContext context)
+    private async Task ProcessRequest(HttpListenerContext context)
     {
         try
         {
@@ -54,7 +55,7 @@ internal class HttpServer
 
             if (!context.Request.HttpMethod.Equals("GET"))
             {
-                SendResponse(context, methodNotAllowedBody, "text/html", HttpStatusCode.MethodNotAllowed);
+                await SendResponse(context, methodNotAllowedBody, "text/html", HttpStatusCode.MethodNotAllowed);
                 return;
             }
 
@@ -62,7 +63,7 @@ internal class HttpServer
 
             if (ReferenceEquals(fileName, null) || fileName.Equals(string.Empty))
             {
-                SendResponse(context, badRequestBody, "text/html", HttpStatusCode.BadRequest);
+                await SendResponse(context, badRequestBody, "text/html", HttpStatusCode.BadRequest);
                 return;
             }
 
@@ -70,7 +71,7 @@ internal class HttpServer
 
             if (extension.Equals(string.Empty) || !extension.Equals(".gif"))
             {
-                SendResponse(context, forbiddenRequestBody, "text/html", HttpStatusCode.Forbidden);
+                await SendResponse(context, forbiddenRequestBody, "text/html", HttpStatusCode.Forbidden);
                 return;
             }
 
@@ -84,26 +85,26 @@ internal class HttpServer
             if (cache.TryRead(fileName, out responseBody))
             {
                 // ako je fajl procitan iz kes memorije, posalji ga klijentu i kesiraj
-                SendResponse(context, responseBody, "image/gif");
+                await SendResponse(context, responseBody, "image/gif");
                 cache.Write(fileName, responseBody);
                 return;
             }
 
-            // u suprotnom, nadji putanju do fajla i procitaj ga sa diska ukoliko postoji
-            // posalji ga klijentu a zatim ga dodaj u kes memoriju
+            // u suprotnom, nadji putanju do fajla i procitaj ga sa diska,
+            // ukoliko postoji posalji ga klijentu a zatim ga dodaj u kes memoriju
             string? filePath = FileSystemUtil.SearchDirectoryForFile(rootDirectoryPath, fileName);
             if (filePath != null)
             {
                 responseBody = File.ReadAllBytes(filePath);
-                SendResponse(context, responseBody, "image/gif");
+                await SendResponse(context, responseBody, "image/gif");
                 cache.Write(fileName, responseBody);
                 return;
             }
 
-            // ukoliko fajl ne postoji, posalji 404
-            SendResponse(context, notFoundRequestBody, "text/html", HttpStatusCode.NotFound);
-
             #endregion
+
+            // ukoliko fajl ne postoji, posalji 404
+            await SendResponse(context, notFoundRequestBody, "text/html", HttpStatusCode.NotFound);
         }
         catch (Exception ex)
         {

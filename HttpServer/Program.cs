@@ -7,7 +7,8 @@ internal class Program
         string localhost = "http://127.0.0.1";
         int port = 8080;
         string rootDirectoryPath = @"../../../root/";
-        HttpServer server = new HttpServer(localhost, port, rootDirectoryPath, @"../../../errLogFile.txt", 10);
+        string errLogFilePath = @"../../../errLogFile.txt";
+        HttpServer server = new HttpServer(localhost, port, rootDirectoryPath, errLogFilePath, 10);
         await server.Launch();
     }
 }
